@@ -1,76 +1,39 @@
-import TemplateService from './services/TemplateService.js';
 "use strict";
-
+// Función del proyecto Tiempos (Catalyst). La usan la captura y el calendario de tiempos.
+// Los tiempos van a ReportesSandbox (core/PrebillApiClient), que los respalda en Books por su cuenta.
+// Lo único que esta función escribe en Books son las plantillas (cm_plantillas_time_entry).
 import express from 'express';
 import dotenv from 'dotenv';
+import TiempoService from './services/TiempoService.js';
+import TemplateService from './services/TemplateService.js';
+import { registerCatalogRoutes } from './core/catalogs.js';
+import { sendError } from './core/http.js';
+
 dotenv.config();
 
-import TimeEntryService from './services/TimeEntryService.js';
-
-import TaskCatalogService from './services/TaskCatalogService.js';
-
-import { registerCatalogRoutes } from './core/catalogs.js';
-import cors from 'cors';
-
 const app = express();
-
-
-// app.use((req, res, next) => {
-//     console.log("[CORS DEBUG]", {
-//         method: req.method,
-//         url: req.originalUrl,
-//         origin: req.headers.origin
-//     });
-
-//     next();
-// });
-
-
-// app.use((req, res, next) => {
-//     console.log("REQUEST:", req.method, req.originalUrl);
-//     next();
-// });
-
-// app.use(cors({
-//     origin: "*",
-//     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-// }));
-
-// app.get("/cors-test", (req, res) => {
-//     res.json({ success: true });
-// });
 app.use(express.json());
 
+const tiempos = req => new TiempoService(req.params.organizationId, { req });
 
-// Resolve the catalog task inside the Books project before recording time.
 app.post('/:organizationId/tiempos', async (req, res) => {
-    console.log('Inicia proceso post');
-    console.log(req.body);
-    try {
-        const result = await new TimeEntryService(req.params.organizationId).create(req.body);
-        return res.status(201).json(result);
-    } catch (error) {
-        const status = error.status || 500;
-        const details = {
-            stage: error.stage ?? 'validation',
-            task_id: error.task_id ?? null,
-            task_created: error.task_created ?? false,
-            outcome_unknown: error.outcome_unknown ?? false
-        };
-        if (status >= 500) console.error('Error guardando tiempo', { ...details, provider_status: error.provider_status ?? null, books_code: error.books_code ?? null });
-        return res.status(status).json({ error: status === 500 ? 'Error interno guardando tiempo.' : error.message, ...details });
-    }
+    try { return res.status(201).json(await tiempos(req).create(req.body)); }
+    catch (error) { return sendError(res, error, 'Error interno guardando el tiempo.'); }
+});
+app.get('/:organizationId/tiempos/:tiempoId', async (req, res) => {
+    try { return res.json(await tiempos(req).get(req.params.tiempoId)); }
+    catch (error) { return sendError(res, error, 'Error interno consultando el tiempo.'); }
+});
+app.patch('/:organizationId/tiempos/:tiempoId', async (req, res) => {
+    try { return res.json(await tiempos(req).update(req.params.tiempoId, req.body)); }
+    catch (error) { return sendError(res, error, 'Error interno actualizando el tiempo.'); }
+});
+app.delete('/:organizationId/tiempos/:tiempoId', async (req, res) => {
+    try { return res.json(await tiempos(req).remove(req.params.tiempoId)); }
+    catch (error) { return sendError(res, error, 'Error interno eliminando el tiempo.'); }
 });
 
-app.get('/:organizationId/tiempos/:timeEntryId', async (req, res) => {
-    try { return res.json({ time_entry: await new TimeEntryService(req.params.organizationId).get(req.params.timeEntryId) }); }
-    catch (error) { return res.status(error.status || 502).json({ error: error.message, stage: 'get_time_entry' }); }
-});
-app.put('/:organizationId/tiempos/:timeEntryId', async (req, res) => {
-    try { return res.json(await new TimeEntryService(req.params.organizationId).create(req.body, req.params.timeEntryId)); }
-    catch (error) { return res.status(error.status || 502).json({ error: error.message, stage: error.stage || 'validation', outcome_unknown: error.outcome_unknown || false, task_id: error.task_id || null, task_created: error.task_created || false }); }
-});
-
+// Plantillas de captura (Books, cm_plantillas_time_entry). Siguen guardando IDs de Books.
 app.get('/:organizationId/plantillas', async (req, res) => {
     try { return res.json(await new TemplateService(req.params.organizationId).list()); }
     catch (error) { return res.status(error.status || 502).json({ error: error.status ? error.message : 'No se pudieron cargar las plantillas.' }); }
@@ -80,35 +43,13 @@ app.post('/:organizationId/plantillas', async (req, res) => {
     catch (error) { return res.status(error.status || 502).json({ error: error.status ? error.message : 'No se pudo guardar la plantilla.', outcome_unknown: error.outcome_unknown || false }); }
 });
 
-// This route must precede the generic Mirror DB catalog route.
-app.get('/:organizationId/tareas', async (req, res) => {
-    const { organizationId } = req.params;
-    if (!/^\d+$/.test(organizationId)) {
-        return res.status(400).json({ error: 'Organización inválida.' });
-    }
-    try {
-        const tasks = await new TaskCatalogService(organizationId).getTasks();
-        return res.json(tasks);
-    } catch (error) {
-        // Do not log Axios errors: they can contain authorization headers.
-        console.error('Error consultando tareas', {
-            organizationId,
-            status: error.response?.status ?? null,
-            code: error.code ?? null,
-            booksCode: error.response?.data?.code ?? null,
-            message: error.isAxiosError ? 'Fallo en la consulta HTTP al proveedor.' : error.message
-        });
-        return res.status(502).json({ error: 'No se pudo obtener el catálogo de tareas de Zoho Books. Intenta nuevamente.' });
-    }
-});
-
-// Lecturas de ReportesSandbox (antes: ruta genérica que reenviaba cualquier GET). Solo estos
-// recursos; cualquier otro responde 404. Debe ir al final: atrapa GET /:org/<recurso>.
+// Lecturas de ReportesSandbox. Solo estos recursos; cualquier otro responde 404.
 export const CATALOGS = {
     clientes: [],
     proyectos: [],
     abogados: [],
-    tiempos: [],
+    'tareas-estandar': ['todos'],
+    tiempos: ['proyecto_id', 'abogado_id', 'liberado', 'facturado', 'prebill_id', 'facturable', 'tarea_estandar_id', 'books_estado'],
 };
 registerCatalogRoutes(app, CATALOGS);
 

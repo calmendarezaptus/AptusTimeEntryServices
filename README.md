@@ -9,7 +9,6 @@ repositorio de trabajo `AptusWidgets`.
 | Carpeta | Qué contiene |
 |---|---|
 | `index.js` | Rutas |
-| `TIME_ENTRY_ENDPOINT.md` | Contrato de `POST /:org/tiempos` |
 | `services/` | Servicios propios de esta función |
 | `core/` | **No editar.** Copia de `shared/catalyst-core/src` (auth Donatello, conexión, cliente de ReportesSandbox, catálogos, errores). Se actualiza con `node shared/catalyst-core/sync.mjs` desde el repositorio de trabajo |
 | `tests/` | `npm test` (sin red; nunca escriben) |
