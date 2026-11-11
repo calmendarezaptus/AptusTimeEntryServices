@@ -9,8 +9,6 @@ import TimeEntryService from './services/TimeEntryService.js';
 
 import TaskCatalogService from './services/TaskCatalogService.js';
 
-import GastoService from './services/GastoService.js';
-import { sendError } from './core/http.js';
 import { registerCatalogRoutes } from './core/catalogs.js';
 import cors from 'cors';
 
@@ -82,26 +80,6 @@ app.post('/:organizationId/plantillas', async (req, res) => {
     catch (error) { return res.status(error.status || 502).json({ error: error.status ? error.message : 'No se pudo guardar la plantilla.', outcome_unknown: error.outcome_unknown || false }); }
 });
 
-// TRANSITORIO: gastos ya vive en expense_services (proyecto Gastos). Estas rutas se quitan cuando
-// la captura y el calendario de gastos apunten a la función nueva y se confirme que funciona.
-// El listado GET /:organizationId/gastos sigue en la ruta genérica.
-app.post('/:organizationId/gastos', async (req, res) => {
-    try { return res.status(201).json(await new GastoService(req.params.organizationId, { req }).create(req.body)); }
-    catch (error) { return sendError(res, error, 'Error interno guardando el gasto.'); }
-});
-app.get('/:organizationId/gastos/:gastoId', async (req, res) => {
-    try { return res.json(await new GastoService(req.params.organizationId, { req }).get(req.params.gastoId)); }
-    catch (error) { return sendError(res, error, 'Error interno consultando el gasto.'); }
-});
-app.patch('/:organizationId/gastos/:gastoId', async (req, res) => {
-    try { return res.json(await new GastoService(req.params.organizationId, { req }).update(req.params.gastoId, req.body)); }
-    catch (error) { return sendError(res, error, 'Error interno actualizando el gasto.'); }
-});
-app.delete('/:organizationId/gastos/:gastoId', async (req, res) => {
-    try { return res.json(await new GastoService(req.params.organizationId, { req }).remove(req.params.gastoId)); }
-    catch (error) { return sendError(res, error, 'Error interno eliminando el gasto.'); }
-});
-
 // This route must precede the generic Mirror DB catalog route.
 app.get('/:organizationId/tareas', async (req, res) => {
     const { organizationId } = req.params;
@@ -123,6 +101,7 @@ app.get('/:organizationId/tareas', async (req, res) => {
         return res.status(502).json({ error: 'No se pudo obtener el catálogo de tareas de Zoho Books. Intenta nuevamente.' });
     }
 });
+
 // Lecturas de ReportesSandbox (antes: ruta genérica que reenviaba cualquier GET). Solo estos
 // recursos; cualquier otro responde 404. Debe ir al final: atrapa GET /:org/<recurso>.
 export const CATALOGS = {
@@ -130,9 +109,6 @@ export const CATALOGS = {
     proyectos: [],
     abogados: [],
     tiempos: [],
-    // TRANSITORIO (gastos vive en expense_services):
-    gastos: [],
-    'categorias-gasto': ['todos'],
 };
 registerCatalogRoutes(app, CATALOGS);
 
